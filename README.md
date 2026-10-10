@@ -37,6 +37,7 @@ wget https://raw.githubusercontent.com/lengxiv/xray-vless-reality-installer-hard
 
 Differences from the host script:
 - Xray runs as a background process; log in `/var/log/xray.log`
+- The log file is not rotated — trim `/var/log/xray.log` periodically in long-running containers
 - No systemd unit, no dedicated user, no BBR
 - Publish port 443 of the container (e.g. `docker run -p 443:443 ...`)
 - Autostart without systemd, detected automatically:

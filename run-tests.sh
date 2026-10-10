@@ -80,6 +80,20 @@ def=$(LC_MESSAGES=zh_CN default_lang);                           ck lang-loc-msg
 def=$(LC_ALL=en_US.UTF-8 default_lang);                          ck lang-loc-en   "$def" en
 def=$(unset LANG LC_ALL LC_MESSAGES; default_lang);              ck lang-loc-none "$def" en
 
+# ---- get_server_address: manual input validated and persisted; saved value reused ----
+srv_file=$(mktemp)
+rm -f "$srv_file"
+SERVER_ADDR_FILE="$srv_file"
+detect_public_ip() { echo ""; }   # force the manual-input path
+out=$(printf 'bad address\n1.2.3.4\n' | get_server_address 2>/dev/null)
+ck gsa-validate "$out" "1.2.3.4"
+ck gsa-persist "$(cat "$srv_file")" "1.2.3.4"
+printf '203.0.113.9\n' > "$srv_file"
+out=$(get_server_address < /dev/null)
+ck gsa-reuse "$out" "203.0.113.9"
+rm -f "$srv_file"
+unset SERVER_ADDR_FILE
+
 # ---- awk rc.local insertion (portable replacement for GNU sed 0,/re/) ----
 printf '#!/bin/sh\nfoo\nexit 0\n' > rc.local.test
 awk -v line="/usr/local/bin/xray-autostart # xray-autostart" \

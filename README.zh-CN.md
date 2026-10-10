@@ -37,6 +37,7 @@ wget https://raw.githubusercontent.com/lengxiv/xray-vless-reality-installer-hard
 
 与宿主机版脚本的差异:
 - Xray 以后台进程运行,日志在 `/var/log/xray.log`
+- 日志不会自动轮转,长期运行的容器请定期清理 `/var/log/xray.log`
 - 没有 systemd 服务单元、专用用户和 BBR
 - 需要发布容器的 443 端口(如 `docker run -p 443:443 ...`)
 - 无 systemd 环境的自启方式自动检测:

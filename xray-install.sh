@@ -131,13 +131,16 @@ get_server_address() {
     [[ -f "$SERVER_ADDR_FILE" ]] && server="$(head -n1 "$SERVER_ADDR_FILE")"
     if [[ -z "$server" ]]; then
         server="$(detect_public_ip)"
-        if [[ -z "$server" ]]; then
-            msg "Unable to auto-detect public IP." "无法自动检测公网 IP。" >&2
-            read -rp "$(t "Enter the server's public IP or domain" "请输入服务器的公网 IP 或域名"): " server
-            [[ -z "$server" ]] && { msg "Server address is required." "必须提供服务器地址。" >&2; exit 1; }
-        fi
-        echo "$server" > "$SERVER_ADDR_FILE"
+        [[ -z "$server" ]] && msg "Unable to auto-detect public IP." "无法自动检测公网 IP。" >&2
     fi
+    # Validate (or ask for) the address: it is persisted and embedded into
+    # client URIs, so free-form input must not reach either
+    until is_valid_host "$server"; do
+        [[ -n "$server" ]] && msg "Invalid address: $server — enter a domain or IPv4." "地址无效: $server,请输入域名或 IPv4。" >&2
+        read -rp "$(t "Enter the server's public IP or domain" "请输入服务器的公网 IP 或域名"): " server
+        [[ -z "$server" ]] && { msg "Server address is required." "必须提供服务器地址。" >&2; exit 1; }
+    done
+    echo "$server" > "$SERVER_ADDR_FILE"
     echo "$server"
 }
 
@@ -812,7 +815,12 @@ remove_client() {
     num_sids=$(jq '.inbounds[0].streamSettings.realitySettings.shortIds // [] | length' "$CONFIG")
 
     # Refuse to remove the last remaining client
-    if [[ "$num_clients" -le 1 ]]; then
+    if [[ "$num_clients" -eq 0 ]]; then
+        echo ""
+        msg "No clients found in the config — it may be corrupted." "配置中未找到任何客户端,配置可能已损坏。"
+        return
+    fi
+    if [[ "$num_clients" -eq 1 ]]; then
         echo ""
         msg "There is only one client configured." "当前仅配置了一个客户端。"
         msg "Cannot remove the last client — use option 4 to remove Xray entirely." "不能删除最后一个客户端,请用选项 4 彻底卸载 Xray。"
