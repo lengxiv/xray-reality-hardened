@@ -13,7 +13,7 @@
 VPS(root 执行):
 
 ```bash
-wget https://raw.githubusercontent.com/lengxiv/xray-vless-reality-installer-hardened/main/xray-install.sh && sudo bash xray-install.sh
+wget https://raw.githubusercontent.com/lengxiv/xray-reality-hardened/main/xray-install.sh && sudo bash xray-install.sh
 ```
 
 之后管理客户端(添加/删除等),再次运行 `sudo bash xray-install.sh` 即可。
@@ -32,7 +32,7 @@ wget https://raw.githubusercontent.com/lengxiv/xray-vless-reality-installer-hard
 在 Docker 容器内(Debian/Ubuntu、Fedora、Alpine、Arch 镜像)使用 `xray-install-docker.sh`。以 root 运行,且需要 bash:
 
 ```bash
-wget https://raw.githubusercontent.com/lengxiv/xray-vless-reality-installer-hardened/main/xray-install-docker.sh && bash xray-install-docker.sh
+wget https://raw.githubusercontent.com/lengxiv/xray-reality-hardened/main/xray-install-docker.sh && bash xray-install-docker.sh
 ```
 
 与宿主机版脚本的差异:

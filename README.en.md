@@ -13,7 +13,7 @@ One script to install and manage a VLESS + REALITY VPN server on any Linux VPS, 
 VPS (run as root):
 
 ```bash
-wget https://raw.githubusercontent.com/lengxiv/xray-vless-reality-installer-hardened/main/xray-install.sh && sudo bash xray-install.sh
+wget https://raw.githubusercontent.com/lengxiv/xray-reality-hardened/main/xray-install.sh && sudo bash xray-install.sh
 ```
 
 To manage clients later, just re-run `sudo bash xray-install.sh`.
@@ -32,7 +32,7 @@ All interactive text in both scripts is **bilingual (English / 中文)**:
 Use `xray-install-docker.sh` inside a Docker container (Debian/Ubuntu, Fedora, Alpine, Arch images). Run it as root; bash is required:
 
 ```bash
-wget https://raw.githubusercontent.com/lengxiv/xray-vless-reality-installer-hardened/main/xray-install-docker.sh && bash xray-install-docker.sh
+wget https://raw.githubusercontent.com/lengxiv/xray-reality-hardened/main/xray-install-docker.sh && bash xray-install-docker.sh
 ```
 
 Differences from the host script:
