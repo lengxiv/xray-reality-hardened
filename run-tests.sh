@@ -60,6 +60,26 @@ done
 # ---- leading-zero octal fix ----
 ck octal "$((10#08))" 8
 
+# ---- bilingual helpers (default must be English when SCRIPT_LANG is unset) ----
+ck i18n-t-default "$(t hello 你好)" hello
+ck i18n-msg-default "$(msg hello 你好)" hello
+SCRIPT_LANG=en
+ck i18n-t-en "$(t hello 你好)" hello
+ck i18n-msg-en "$(msg hello 你好)" hello
+SCRIPT_LANG=zh
+ck i18n-t-zh "$(t hello 你好)" 你好
+ck i18n-msg-zh "$(msg hello 你好)" 你好
+unset SCRIPT_LANG
+
+# ---- default_lang: XRAY_INSTALL_LANG wins over the locale; zh locales detected ----
+def=$(XRAY_INSTALL_LANG=en LC_ALL=zh_CN.UTF-8 default_lang);     ck lang-env-en   "$def" en
+def=$(XRAY_INSTALL_LANG=zh LC_ALL=en_US.UTF-8 default_lang);     ck lang-env-zh   "$def" zh
+def=$(XRAY_INSTALL_LANG=xx LC_ALL=zh_CN.UTF-8 default_lang);     ck lang-env-bad  "$def" zh
+def=$(LC_ALL=zh_TW.UTF-8 default_lang);                          ck lang-loc-tw   "$def" zh
+def=$(LC_MESSAGES=zh_CN default_lang);                           ck lang-loc-msgs "$def" zh
+def=$(LC_ALL=en_US.UTF-8 default_lang);                          ck lang-loc-en   "$def" en
+def=$(unset LANG LC_ALL LC_MESSAGES; default_lang);              ck lang-loc-none "$def" en
+
 # ---- awk rc.local insertion (portable replacement for GNU sed 0,/re/) ----
 printf '#!/bin/sh\nfoo\nexit 0\n' > rc.local.test
 awk -v line="/usr/local/bin/xray-autostart # xray-autostart" \

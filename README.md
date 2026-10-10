@@ -1,6 +1,6 @@
 # Xray VLESS + REALITY 安装脚本(Hardened / 审计加固版)
 
-**这是什么**:一个在 **Linux VPS / Docker 容器**上一键安装并管理 **Xray VLESS + REALITY** 代理服务的脚本。首次运行自动完成全部安装——下载 Xray 内核、生成 REALITY 密钥与客户端凭据、配置服务与开机自启、输出连接链接和二维码;之后再次运行进入管理菜单——添加/删除客户端、重启服务、彻底卸载。无需域名、无需证书,支持 **TCP + XTLS Vision** 与 **XHTTP** 两种传输,并默认拦截客户端对服务器私网/云元数据地址的访问。
+**这是什么**:一个在 **Linux VPS / Docker 容器**上一键安装并管理 **Xray VLESS + REALITY** 代理服务的脚本。首次运行自动完成全部安装——下载 Xray 内核、生成 REALITY 密钥与客户端凭据、配置服务与开机自启、输出连接链接和二维码;之后再次运行进入管理菜单——添加/删除客户端、重启服务、彻底卸载。无需域名、无需证书,支持 **TCP + XTLS Vision** 与 **XHTTP** 两种传输,默认拦截客户端对服务器私网/云元数据地址的访问,交互界面支持**中英双语**。
 
 本项目基于 [ndatg/xray-vless-reality-installer](https://github.com/ndatg/xray-vless-reality-installer) 完成了**全量安全审计与加固**,修复 20+ 项安全与健壮性问题:systemd 服务沙箱隔离、交互输入校验(防配置注入)、凭据随机性(全部改用 /dev/urandom)、BBR 失败不再中断安装、Alpine/busybox 兼容、REALITY 公钥自动恢复等,逐项说明见 **[AUDIT_REPORT.md](AUDIT_REPORT.md)**。上游采用 MIT 许可,本项目同样以 MIT 发布。
 
@@ -15,6 +15,15 @@ wget https://raw.githubusercontent.com/lengxiv/xray-vless-reality-installer-hard
 ```
 
 之后管理客户端(添加/删除等),再次运行 `sudo bash xray-install.sh` 即可。
+
+## 交互语言 / Interface Language
+
+两个脚本的所有交互文案均为**双语(English / 中文)**:
+
+- 启动时会出现一次性语言选择(默认值按系统 locale 自动预选,直接回车即可);
+- 用环境变量跳过提问:`XRAY_INSTALL_LANG=zh sudo -E bash xray-install.sh`(或 `en`);
+- 管道/自动化运行(非交互 stdin)不会提问,直接使用 locale 默认语言;
+- 菜单、提示、警告、安装摘要全部跟随所选语言,仅机器输出(URI、二维码、日志路径)保持原样。
 
 ### 在 Docker 容器中运行(无 systemd)
 
@@ -71,7 +80,7 @@ Select an option:
    5) Exit
 ```
 
-(菜单界面为英文显示。)
+(菜单支持中英双语,此处以英文输出为例。)
 
 若开机自启曾被关闭,脚本会重新启用。配置变更(添加/删除客户端)会先校验、再替换正在运行的配置。如果现有配置由缺少私网拦截规则的旧版本生成,脚本会主动提议补上。
 

@@ -7,6 +7,9 @@
 #   - First run  : installs Xray-core with VLESS+REALITY (interactive prompts)
 #   - Re-run     : management menu (add/remove clients, uninstall)
 #
+# All user-facing text is bilingual (English / 中文); the language is chosen
+# at startup and can be preset with XRAY_INSTALL_LANG=en|zh.
+#
 # Usage:
 #   sudo bash xray-install.sh
 # ==============================================================================
@@ -21,6 +24,54 @@ DECLINE_FILE="/etc/xray/.no-private-block"
 # (server's localhost, LAN/provider networks, cloud metadata 169.254.169.254,
 #  multicast and reserved ranges)
 PRIVATE_IPS_JSON='["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "240.0.0.0/4", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8"]'
+
+# ==============================================================================
+# Bilingual output helpers (English / 中文)
+# ==============================================================================
+# SCRIPT_LANG: "en" (default) or "zh". Set by the startup prompt, by
+# XRAY_INSTALL_LANG=en|zh, or exported manually. t prints without a trailing
+# newline (prompts, inline values); msg prints a whole line.
+
+t() {
+    if [[ "${SCRIPT_LANG:-}" == "zh" ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi
+}
+
+msg() {
+    if [[ "${SCRIPT_LANG:-}" == "zh" ]]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi
+}
+
+# Guess the display language: XRAY_INSTALL_LANG wins, then the POSIX locale.
+# Used only to preselect the prompt default (and for non-interactive runs).
+default_lang() {
+    case "${XRAY_INSTALL_LANG:-}" in
+        en|zh) echo "${XRAY_INSTALL_LANG}" && return 0 ;;
+    esac
+    case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in
+        zh*|*_CN*|*_TW*|*_HK*|*_SG*|*_MO*) echo "zh" ;;
+        *)                                  echo "en" ;;
+    esac
+}
+
+# Ask for the language once at startup (Enter keeps the detected default).
+# Skipped entirely when stdin is not a terminal (piped/automated run).
+select_language() {
+    local def choice
+    def="$(default_lang)"
+    if [[ ! -t 0 ]]; then
+        SCRIPT_LANG="$def"
+        return 0
+    fi
+    echo ""
+    echo "Select language / 选择语言:"
+    echo "   1) English"
+    echo "   2) 中文"
+    read -rp "选择 / Choice [1-2] (default 默认: $def): " choice || choice=""
+    case "$choice" in
+        1) SCRIPT_LANG="en" ;;
+        2) SCRIPT_LANG="zh" ;;
+        *) SCRIPT_LANG="$def" ;;
+    esac
+}
 
 # ==============================================================================
 # Utility functions
@@ -39,9 +90,11 @@ is_xray_installed() {
 ensure_xray_autostart() {
     systemctl is-enabled --quiet xray 2>/dev/null && return 0
     if systemctl enable xray &>/dev/null; then
-        echo ">>> Xray autostart at boot was disabled — enabled it."
+        msg ">>> Xray autostart at boot was disabled — enabled it." \
+            ">>> Xray 开机自启此前被关闭,已重新启用。"
     else
-        echo "Warning: could not enable Xray autostart (is the service masked?)." >&2
+        msg "Warning: could not enable Xray autostart (is the service masked?)." \
+            "警告:无法启用 Xray 开机自启(服务是否被 mask?)" >&2
     fi
 }
 
@@ -79,9 +132,9 @@ get_server_address() {
     if [[ -z "$server" ]]; then
         server="$(detect_public_ip)"
         if [[ -z "$server" ]]; then
-            echo "Unable to auto-detect public IP." >&2
-            read -rp "Enter the server's public IP or domain: " server
-            [[ -z "$server" ]] && { echo "Server address is required." >&2; exit 1; }
+            msg "Unable to auto-detect public IP." "无法自动检测公网 IP。" >&2
+            read -rp "$(t "Enter the server's public IP or domain" "请输入服务器的公网 IP 或域名"): " server
+            [[ -z "$server" ]] && { msg "Server address is required." "必须提供服务器地址。" >&2; exit 1; }
         fi
         echo "$server" > "$SERVER_ADDR_FILE"
     fi
@@ -135,7 +188,7 @@ set_config_permissions() {
 validate_config() {
     local path="${1:-$CONFIG}" output
     if ! output=$(/usr/local/bin/xray run -test -format json -config "$path" 2>&1); then
-        echo "Xray config validation failed ($path):" >&2
+        msg "Xray config validation failed ($path):" "Xray 配置校验失败($path):" >&2
         echo "$output" >&2
         return 1
     fi
@@ -150,7 +203,7 @@ restart_xray() {
         sleep 1
         systemctl is-active --quiet xray && return 0
     done
-    echo "Xray service failed to start. Recent logs:" >&2
+    msg "Xray service failed to start. Recent logs:" "Xray 服务启动失败,最近日志:" >&2
     journalctl -u xray -n 20 --no-pager >&2 || true
     exit 1
 }
@@ -183,7 +236,7 @@ add_private_block() {
     set_config_permissions
     rm -f "$DECLINE_FILE"
     restart_xray
-    echo ">>> Access to private/local addresses is now blocked."
+    msg ">>> Access to private/local addresses is now blocked." ">>> 已启用对私网/本机地址的拦截。"
 }
 
 # Offer the private-address block if the config does not have it yet
@@ -195,10 +248,10 @@ offer_private_block() {
     # A previous refusal is remembered so the question is not asked on every run
     [[ -f "$DECLINE_FILE" ]] && return 0
     echo ""
-    echo "Your config lets clients reach the server's local and private addresses"
-    echo "(localhost services, internal networks, cloud metadata)."
+    msg "Your config lets clients reach the server's local and private addresses" "当前配置允许客户端访问服务器的本机与私网地址"
+    msg "(localhost services, internal networks, cloud metadata)." "(localhost 服务、内网、云元数据)。"
     local answer
-    read -rp "Block them now? [Y/n]: " answer
+    read -rp "$(t "Block them now? [Y/n]" "现在启用拦截吗?[Y/n]"): " answer
     if [[ "$answer" =~ ^[Nn]$ ]]; then
         touch "$DECLINE_FILE"
     else
@@ -212,14 +265,14 @@ ensure_xray_user() {
         local nologin="/usr/sbin/nologin"
         [[ -x "$nologin" ]] || nologin="$(command -v nologin 2>/dev/null || echo /bin/false)"
         useradd --system --no-create-home --shell "$nologin" xray
-        echo ">>> Created system user 'xray'."
+        msg ">>> Created system user 'xray'." ">>> 已创建系统用户 'xray'。"
     fi
 }
 
 # Install jq if it is not already present
 ensure_jq() {
     command -v jq &>/dev/null && return 0
-    echo ">>> Installing jq..."
+    msg ">>> Installing jq..." ">>> 正在安装 jq..."
     if command -v apt &>/dev/null; then
         apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y jq
     elif command -v dnf &>/dev/null; then
@@ -229,13 +282,14 @@ ensure_jq() {
     elif command -v pacman &>/dev/null; then
         pacman -Sy --noconfirm jq
     else
-        echo "Please install 'jq' manually." >&2; exit 1
+        msg "Please install 'jq' manually." "请手动安装 'jq'。" >&2; exit 1
     fi
 }
 
 # Install all required packages for a fresh installation
 install_deps() {
-    echo -e "\n>>> Installing dependencies..."
+    msg "" ""  # blank line
+    msg ">>> Installing dependencies..." ">>> 正在安装依赖..."
     if command -v apt &>/dev/null; then
         apt-get update -y
         DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -248,7 +302,7 @@ install_deps() {
     elif command -v pacman &>/dev/null; then
         pacman -Sy --noconfirm curl unzip tar qrencode jq openssl
     else
-        echo "Unsupported package manager. Install dependencies manually." >&2
+        msg "Unsupported package manager. Install dependencies manually." "不支持的包管理器,请手动安装依赖。" >&2
         exit 1
     fi
 }
@@ -256,10 +310,11 @@ install_deps() {
 # Enable TCP BBR congestion control for better throughput
 enable_bbr() {
     if sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null | grep -q '^bbr$'; then
-        echo ">>> BBR congestion control already enabled."
+        msg ">>> BBR congestion control already enabled." ">>> BBR 拥塞控制已启用。"
         return 0
     fi
-    echo -e "\n>>> Enabling TCP BBR congestion control..."
+    echo ""
+    msg ">>> Enabling TCP BBR congestion control..." ">>> 正在开启 TCP BBR 拥塞控制..."
     # Use a drop-in: /etc/sysctl.conf is no longer read at boot on newer distros (e.g. Debian 13)
     local bbr_conf="/etc/sysctl.d/99-xray-bbr.conf"
     mkdir -p /etc/sysctl.d
@@ -267,7 +322,8 @@ enable_bbr() {
     modprobe tcp_bbr 2>/dev/null || true
     # BBR is a speed optimization, not a requirement — never abort the install over it
     if ! sysctl -p "$bbr_conf"; then
-        echo "Warning: could not enable BBR (kernel too old or module unavailable). Continuing without it." >&2
+        msg "Warning: could not enable BBR (kernel too old or module unavailable). Continuing without it." \
+            "警告:无法启用 BBR(内核过旧或模块不可用),跳过 BBR 继续安装。" >&2
     fi
 }
 
@@ -285,19 +341,19 @@ is_valid_host() {
 open_firewall() {
     if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q 'Status: active'; then
         if ufw status 2>/dev/null | grep -q '443/tcp'; then
-            echo ">>> UFW already allows 443/tcp."
+            msg ">>> UFW already allows 443/tcp." ">>> UFW 已放行 443/tcp。"
         elif ufw allow 443/tcp &>/dev/null; then
-            echo ">>> UFW: allowed 443/tcp."
+            msg ">>> UFW: allowed 443/tcp." ">>> UFW: 已放行 443/tcp。"
         else
-            echo "Warning: failed to add a UFW rule — open port 443 manually." >&2
+            msg "Warning: failed to add a UFW rule — open port 443 manually." "警告:添加 UFW 规则失败,请手动放行 443 端口。" >&2
         fi
     elif command -v firewall-cmd &>/dev/null && firewall-cmd --state &>/dev/null; then
         if firewall-cmd --permanent --list-ports 2>/dev/null | grep -q '443/tcp'; then
-            echo ">>> firewalld already allows 443/tcp."
+            msg ">>> firewalld already allows 443/tcp." ">>> firewalld 已放行 443/tcp。"
         elif firewall-cmd --permanent --add-port=443/tcp &>/dev/null && firewall-cmd --reload &>/dev/null; then
-            echo ">>> firewalld: allowed 443/tcp."
+            msg ">>> firewalld: allowed 443/tcp." ">>> firewalld: 已放行 443/tcp。"
         else
-            echo "Warning: failed to open port 443 in firewalld — do it manually." >&2
+            msg "Warning: failed to open port 443 in firewalld — do it manually." "警告:firewalld 放行 443 失败,请手动处理。" >&2
         fi
     fi
 }
@@ -308,27 +364,30 @@ open_firewall() {
 check_sni_target() {
     local sni="$1" result http_ver code redirect redirect_host answer
     local problems=()
-    echo -e "\n>>> Checking SNI target https://$sni (TLS 1.3, HTTP/2, no redirect)..."
+    echo ""
+    msg ">>> Checking SNI target https://$sni (TLS 1.3, HTTP/2, no redirect)..." \
+        ">>> 正在检查 SNI 目标 https://$sni(TLS 1.3、HTTP/2、无跳转)..."
     result="$(curl -sS -o /dev/null --tlsv1.3 --http2 --connect-timeout 5 --max-time 10 \
         -w '%{http_version} %{http_code} %{redirect_url}' "https://$sni/" 2>/dev/null || true)"
     read -r http_ver code redirect <<< "$result"
     if [[ -z "$code" || "$code" == "000" ]]; then
-        problems+=("no TLS 1.3 connection (site unreachable or TLS 1.3 not supported)")
+        problems+=("$(t "no TLS 1.3 connection (site unreachable or TLS 1.3 not supported)" \
+                       "无法建立 TLS 1.3 连接(站点不可达或不支持 TLS 1.3)")")
     else
-        [[ "$http_ver" == "2" ]] || problems+=("no HTTP/2 support (got HTTP/$http_ver)")
+        [[ "$http_ver" == "2" ]] || problems+=("$(t "no HTTP/2 support (got HTTP/$http_ver)" "不支持 HTTP/2(实际为 HTTP/$http_ver)")")
         if [[ -n "${redirect:-}" ]]; then
             redirect_host="${redirect#*://}"; redirect_host="${redirect_host%%[/:?]*}"
-            [[ "$redirect_host" == "$sni" ]] || problems+=("redirects to another domain: $redirect_host")
+            [[ "$redirect_host" == "$sni" ]] || problems+=("$(t "redirects to another domain: $redirect_host" "跳转到其他域名: $redirect_host")")
         fi
     fi
     if (( ${#problems[@]} == 0 )); then
-        echo ">>> SNI target looks good."
+        msg ">>> SNI target looks good." ">>> SNI 目标检查通过。"
         return 0
     fi
-    echo "Warning: $sni does not meet REALITY target requirements:" >&2
+    msg "Warning: $sni does not meet REALITY target requirements:" "警告: $sni 不满足 REALITY 目标要求:" >&2
     printf '   - %s\n' "${problems[@]}" >&2
-    read -rp "Continue anyway? [y/N]: " answer
-    [[ "$answer" =~ ^[Yy]$ ]] || { echo "Aborted. Choose another SNI domain." >&2; exit 1; }
+    read -rp "$(t "Continue anyway? [y/N]" "仍要继续吗?[y/N]"): " answer
+    [[ "$answer" =~ ^[Yy]$ ]] || { msg "Aborted. Choose another SNI domain." "已中止,请更换 SNI 域名。" >&2; exit 1; }
 }
 
 # Build a VLESS+REALITY URI and display it along with a QR code
@@ -346,17 +405,19 @@ show_connection_info() {
     fi
 
     echo ""
-    echo "Generated VLESS+REALITY URI (copy or scan):"
+    msg "Generated VLESS+REALITY URI (copy or scan):" "已生成 VLESS+REALITY 链接(复制或扫码使用):"
     echo "$uri"
 
     if command -v qrencode &>/dev/null; then
         local png="/etc/xray/vless-${uuid}.png"
         if qrencode -o "$png" -l H -t png -- "$uri" 2>/dev/null; then
             chmod 600 "$png"  # the image embeds the full client credentials
-            echo -e "\nQR code saved to: $png"
+            echo ""
+            msg "QR code saved to: $png" "二维码已保存到: $png"
         else
             rm -f "$png"
-            echo -e "\nWarning: could not write the QR code PNG." >&2
+            echo ""
+            msg "Warning: could not write the QR code PNG." "警告:二维码 PNG 写入失败。" >&2
         fi
         # ANSIUTF8 needs qrencode >= 4.0 — fall back for older builds; never fatal
         qrencode -t ANSIUTF8 -- "$uri" 2>/dev/null \
@@ -364,7 +425,8 @@ show_connection_info() {
             || qrencode -t ANSI -- "$uri" 2>/dev/null \
             || true
     else
-        echo -e "\nqrencode not available — QR code generation skipped."
+        echo ""
+        msg "qrencode not available — QR code generation skipped." "未安装 qrencode,跳过二维码生成。"
     fi
 }
 
@@ -374,7 +436,7 @@ show_connection_info() {
 
 new_install() {
     echo ""
-    echo "Welcome to the Xray VLESS+REALITY installer!"
+    msg "Welcome to the Xray VLESS+REALITY installer!" "欢迎使用 Xray VLESS+REALITY 安装脚本!"
     echo ""
 
     # ---- Public IP ----
@@ -382,44 +444,44 @@ new_install() {
     local detected input
     detected="$(detect_public_ip)"
     if [[ -n "$detected" ]]; then
-        echo "Detected public IP: $detected"
-        read -rp "Server address for clients (IP or domain) [$detected]: " input
+        msg "Detected public IP: $detected" "检测到公网 IP: $detected"
+        read -rp "$(t "Server address for clients (IP or domain) [$detected]" "客户端连接用的服务器地址(IP 或域名)[$detected]"): " input
         server="${input:-$detected}"
     else
-        echo "Unable to auto-detect public IP." >&2
-        read -rp "Enter the server's public IP or domain: " server
+        msg "Unable to auto-detect public IP." "无法自动检测公网 IP。" >&2
+        read -rp "$(t "Enter the server's public IP or domain" "请输入服务器的公网 IP 或域名"): " server
     fi
     # Validate the format: this value is embedded into the JSON config and the URIs
     until is_valid_host "$server"; do
-        read -rp "Invalid address (use a domain or IPv4). Try again: " server
+        read -rp "$(t "Invalid address (use a domain or IPv4). Try again" "地址无效(请使用域名或 IPv4),请重试"): " server
     done
 
     # ---- SNI domain (required) ----
     local sni
     echo ""
-    read -rp "Enter the SNI domain (e.g. www.cloudflare.com): " sni
+    read -rp "$(t "Enter the SNI domain (e.g. www.cloudflare.com)" "请输入 SNI 域名(如 www.cloudflare.com)"): " sni
     until is_valid_host "$sni"; do
-        read -rp "Invalid SNI domain. Try again: " sni
+        read -rp "$(t "Invalid SNI domain. Try again" "SNI 域名无效,请重试"): " sni
     done
 
     # ---- DNS selection ----
     echo ""
-    echo "Select a DNS server for Xray:"
-    echo "   1) Current system resolvers"
+    msg "Select a DNS server for Xray:" "为 Xray 选择 DNS 服务器:"
+    msg "   1) Current system resolvers" "   1) 使用当前系统解析器"
     echo "   2) Google        (8.8.8.8, 8.8.4.4)"
     echo "   3) Cloudflare    (1.1.1.1, 1.0.0.1)"
     echo "   4) OpenDNS       (208.67.222.222, 208.67.220.220)"
     echo "   5) Quad9         (9.9.9.9, 149.112.112.112)"
     echo "   6) AdGuard DNS   (94.140.14.14, 94.140.15.15)"
     local dns_choice dns1 dns2
-    read -rp "DNS [1-6, default 2]: " dns_choice
+    read -rp "$(t "DNS [1-6, default 2]" "DNS [1-6, 默认 2]"): " dns_choice
     case "${dns_choice:-2}" in
         1)
             dns1="$(grep -m1 '^nameserver' /etc/resolv.conf 2>/dev/null | awk '{print $2}' || true)"
             dns2="$(grep '^nameserver' /etc/resolv.conf 2>/dev/null | awk 'NR==2{print $2}' || true)"
             if [[ -z "$dns1" ]]; then
                 dns1="8.8.8.8"; dns2="8.8.4.4"
-                echo "No system resolvers found. Falling back to Google DNS."
+                msg "No system resolvers found. Falling back to Google DNS." "未找到系统解析器,回退到 Google DNS。"
             fi
             ;;
         3)  dns1="1.1.1.1";         dns2="1.0.0.1" ;;
@@ -432,11 +494,14 @@ new_install() {
     # ---- Transport ----
     local transport_choice network xhttp_path=""
     echo ""
-    echo "Select a transport:"
-    echo "   1) TCP + XTLS Vision  (default; supported by all client apps)"
-    echo "   2) XHTTP              (newer, splits traffic into HTTP requests and is harder"
-    echo "                          to fingerprint; check that your client app supports it)"
-    read -rp "Transport [1-2, default 1]: " transport_choice
+    msg "Select a transport:" "选择传输层:"
+    msg "   1) TCP + XTLS Vision  (default; supported by all client apps)" \
+        "   1) TCP + XTLS Vision  (默认;所有客户端应用都支持)"
+    msg "   2) XHTTP              (newer, splits traffic into HTTP requests and is harder" \
+        "   2) XHTTP              (较新,把流量拆分为 HTTP 请求,更难被指纹识别;"
+    msg "                          to fingerprint; check that your client app supports it)" \
+        "                          请确认您的客户端应用支持)"
+    read -rp "$(t "Transport [1-2, default 1]" "传输层 [1-2, 默认 1]"): " transport_choice
     if [[ "${transport_choice:-1}" == "2" ]]; then
         network="xhttp"
         xhttp_path="/$(openssl rand -hex 4 2>/dev/null || generate_short_id)"
@@ -446,14 +511,14 @@ new_install() {
 
     # ---- Confirmation summary ----
     echo ""
-    echo "Xray VLESS+REALITY will be installed with these settings:"
+    msg "Xray VLESS+REALITY will be installed with these settings:" "Xray VLESS+REALITY 将按以下配置安装:"
     echo ""
-    echo "   Server IP  : $server"
-    echo "   SNI domain : $sni"
-    echo "   DNS servers: $dns1${dns2:+, $dns2}"
-    echo "   Transport  : $network"
+    msg "   Server IP  : $server" "   服务器 IP  : $server"
+    msg "   SNI domain : $sni" "   SNI 域名   : $sni"
+    msg "   DNS servers: $dns1${dns2:+, $dns2}" "   DNS 服务器: $dns1${dns2:+, $dns2}"
+    msg "   Transport  : $network" "   传输层     : $network"
     echo ""
-    read -rp "Press Enter to continue or Ctrl+C to abort..."
+    read -rp "$(t "Press Enter to continue or Ctrl+C to abort..." "按回车继续,Ctrl+C 中止...")"
 
     # ---- Install system packages ----
     install_deps
@@ -465,17 +530,18 @@ new_install() {
     xray_version="$(curl -fsSL --connect-timeout 10 --max-time 30 https://api.github.com/repos/XTLS/Xray-core/releases/latest \
         | grep -Po '"tag_name":\s*"\K[^"]+' || true)"
     if [[ -z "$xray_version" ]]; then
-        echo "Unable to fetch latest Xray-core version from GitHub." >&2
+        msg "Unable to fetch latest Xray-core version from GitHub." "无法从 GitHub 获取最新 Xray-core 版本。" >&2
         exit 1
     fi
-    echo -e "\n>>> Latest Xray-core version: $xray_version"
+    echo ""
+    msg ">>> Latest Xray-core version: $xray_version" ">>> 最新 Xray-core 版本: $xray_version"
 
     local arch_pkg
     case "$(uname -m)" in
         x86_64|amd64)   arch_pkg="xray-linux-64" ;;
         aarch64|arm64)  arch_pkg="xray-linux-arm64-v8a" ;;
         armv7l|armv6l)  arch_pkg="xray-linux-arm32-v7a" ;;
-        *) echo "Unsupported CPU architecture: $(uname -m)" >&2; exit 1 ;;
+        *) msg "Unsupported CPU architecture: $(uname -m)" "不支持的 CPU 架构: $(uname -m)" >&2; exit 1 ;;
     esac
 
     local tmp_dir
@@ -486,7 +552,7 @@ new_install() {
 
     local zip_name="${arch_pkg}.zip"
     local download_url="https://github.com/XTLS/Xray-core/releases/download/${xray_version}/${zip_name}"
-    echo ">>> Downloading Xray-core ${xray_version} (${arch_pkg})..."
+    msg ">>> Downloading Xray-core ${xray_version} (${arch_pkg})..." ">>> 正在下载 Xray-core ${xray_version}(${arch_pkg})..."
     curl -fL --connect-timeout 10 --max-time 300 "$download_url" -o "$tmp_dir/$zip_name"
 
     install -d /usr/local/bin /etc/xray
@@ -501,7 +567,7 @@ new_install() {
     # ---- Generate X25519 key pair for REALITY ----
     local key_output private_key public_key
     key_output=$(/usr/local/bin/xray x25519)
-    
+
     # Use $NF (last field) to handle varying output formats across Xray versions
     # Support both old ("Private key: / Public key:") and new ("PrivateKey: / Password:") formats
     private_key=$(echo "$key_output" | awk '/PrivateKey/{print $NF}')
@@ -511,7 +577,7 @@ new_install() {
     [[ -z "$public_key" ]] && public_key=$(echo "$key_output" | awk '/Public key:/{print $3}')
 
     if [[ -z "$private_key" || -z "$public_key" ]]; then
-        echo "Failed to generate X25519 keys. Raw output:" >&2
+        msg "Failed to generate X25519 keys. Raw output:" "X25519 密钥生成失败,原始输出:" >&2
         echo "$key_output" >&2
         exit 1
     fi
@@ -646,19 +712,19 @@ SERVICE
 
     cat <<EOF
 
-Xray-core VLESS + REALITY installation completed!
+$(t 'Xray-core VLESS + REALITY installation completed!' 'Xray-core VLESS + REALITY 安装完成!')
 
-Configuration file : $CONFIG
-Systemd service    : xray (running)
-Fake SNI           : $sni
-Connect to host    : $server
-Public key         : $public_key (saved to /etc/xray/public.key)
-Server address     : saved to $SERVER_ADDR_FILE
-Transport          : $network${xhttp_path:+ (path $xhttp_path)}
-Short ID           : $short_id
-UUID               : $uuid
+$(t 'Configuration file' '配置文件') : $CONFIG
+$(t 'Systemd service' 'systemd 服务')    : xray ($(t 'running' '运行中'))
+$(t 'Fake SNI' '伪装 SNI')           : $sni
+$(t 'Connect to host' '连接地址')     : $server
+$(t 'Public key' '公钥')         : $public_key ($(t 'saved to' '已保存到') /etc/xray/public.key)
+$(t 'Server address' '服务器地址')     : $(t 'saved to' '已保存到') $SERVER_ADDR_FILE
+$(t 'Transport' '传输层')        : $network${xhttp_path:+ (path $xhttp_path)}
+Short ID          : $short_id
+UUID              : $uuid
 
-To manage clients or remove Xray, run this script again.
+$(t 'To manage clients or remove Xray, run this script again.' '再次运行本脚本可管理客户端或卸载 Xray。')
 EOF
 }
 
@@ -684,7 +750,7 @@ add_client() {
     short_id="$(generate_short_id "$existing_sids")"
 
     echo ""
-    echo "Adding new client..."
+    msg "Adding new client..." "正在添加新客户端..."
     echo "  UUID     : $uuid"
     echo "  Short ID : $short_id"
 
@@ -717,12 +783,12 @@ add_client() {
             [[ -z "$pbk" ]] && pbk="$(echo "$key_out" | awk '/Public key:/{print $3}')"
             if [[ -n "$pbk" ]]; then
                 echo "$pbk" > /etc/xray/public.key
-                echo ">>> Restored missing /etc/xray/public.key."
+                msg ">>> Restored missing /etc/xray/public.key." ">>> 已恢复缺失的 /etc/xray/public.key。"
             fi
         fi
     fi
     if [[ -z "$pbk" ]]; then
-        echo "Cannot determine the REALITY public key — create /etc/xray/public.key first." >&2
+        msg "Cannot determine the REALITY public key — create /etc/xray/public.key first." "无法确定 REALITY 公钥,请先创建 /etc/xray/public.key。" >&2
         exit 1
     fi
     sni="$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0] // empty' "$CONFIG")"
@@ -731,7 +797,7 @@ add_client() {
     show_connection_info "$uuid" "$server" "$pbk" "$short_id" "$sni" "$network" "$xhttp_path"
 
     echo ""
-    echo "Client added successfully! Xray has been restarted."
+    msg "Client added successfully! Xray has been restarted." "客户端添加成功,Xray 已重启。"
 }
 
 # ==============================================================================
@@ -748,13 +814,13 @@ remove_client() {
     # Refuse to remove the last remaining client
     if [[ "$num_clients" -le 1 ]]; then
         echo ""
-        echo "There is only one client configured."
-        echo "Cannot remove the last client — use option 4 to remove Xray entirely."
+        msg "There is only one client configured." "当前仅配置了一个客户端。"
+        msg "Cannot remove the last client — use option 4 to remove Xray entirely." "不能删除最后一个客户端,请用选项 4 彻底卸载 Xray。"
         return
     fi
 
     echo ""
-    echo "Current clients:"
+    msg "Current clients:" "当前客户端:"
     echo ""
 
     # List every client with its positional Short ID
@@ -770,16 +836,16 @@ remove_client() {
     done < <(jq -r '.inbounds[0].settings.clients[].id' "$CONFIG")
 
     echo ""
-    read -rp "Select the client to remove [1-$num_clients]: " choice
+    read -rp "$(t "Select the client to remove [1-$num_clients]" "选择要删除的客户端 [1-$num_clients]"): " choice
 
     # Validate the selection
     if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
-        echo "Invalid selection." >&2
+        msg "Invalid selection." "选择无效。" >&2
         return
     fi
     choice=$((10#$choice))  # strip leading zeros so "08" is not parsed as octal
     if (( choice < 1 || choice > num_clients )); then
-        echo "Invalid selection." >&2
+        msg "Invalid selection." "选择无效。" >&2
         return
     fi
 
@@ -787,8 +853,8 @@ remove_client() {
     local target_uuid="${uuids[$idx]}"
 
     echo ""
-    read -rp "Confirm removal of client $target_uuid? [y/N]: " confirm
-    [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "Aborted."; return; }
+    read -rp "$(t "Confirm removal of client $target_uuid? [y/N]" "确认删除客户端 $target_uuid?[y/N]"): " confirm
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { msg "Aborted." "已中止。"; return; }
 
     # Remove the client object and its corresponding Short ID by index; the Short ID
     # is positional, so only touch it while clients and Short IDs stay in sync
@@ -798,7 +864,8 @@ remove_client() {
             .inbounds[0].streamSettings.realitySettings.shortIds |= del(.[$idx])
         ' "$CONFIG" > "${CONFIG}.tmp"
     else
-        echo "Warning: clients ($num_clients) and Short IDs ($num_sids) are out of sync — removing the client entry only." >&2
+        msg "Warning: clients ($num_clients) and Short IDs ($num_sids) are out of sync — removing the client entry only." \
+            "警告:客户端数($num_clients)与 Short ID 数($num_sids)不一致,仅删除客户端条目。" >&2
         jq --argjson idx "$idx" '.inbounds[0].settings.clients |= del(.[$idx])' "$CONFIG" > "${CONFIG}.tmp"
     fi
     validate_config "${CONFIG}.tmp" || { rm -f "${CONFIG}.tmp"; exit 1; }
@@ -810,7 +877,7 @@ remove_client() {
     # Clean up QR code image if it exists
     rm -f "/etc/xray/vless-${target_uuid}.png"
 
-    echo "Client removed. Xray has been restarted."
+    msg "Client removed. Xray has been restarted." "客户端已删除,Xray 已重启。"
 }
 
 # ==============================================================================
@@ -819,26 +886,26 @@ remove_client() {
 
 remove_xray() {
     echo ""
-    read -rp "Are you sure you want to completely remove Xray? [y/N]: " confirm
-    [[ ! "$confirm" =~ ^[Yy]$ ]] && { echo "Aborted."; return; }
+    read -rp "$(t "Are you sure you want to completely remove Xray? [y/N]" "确认要彻底卸载 Xray 吗?[y/N]"): " confirm
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && { msg "Aborted." "已中止。"; return; }
 
     echo ""
-    echo ">>> Stopping and disabling Xray service..."
+    msg ">>> Stopping and disabling Xray service..." ">>> 正在停止并禁用 Xray 服务..."
     systemctl stop xray 2>/dev/null || true
     systemctl disable xray 2>/dev/null || true
 
-    echo ">>> Removing Xray binary, configuration and service unit..."
+    msg ">>> Removing Xray binary, configuration and service unit..." ">>> 正在删除 Xray 二进制、配置和服务单元..."
     rm -f /usr/local/bin/xray
     rm -rf /etc/xray
     rm -f /etc/systemd/system/xray.service
     rm -f /etc/sysctl.d/99-xray-bbr.conf
     if id -u xray &>/dev/null; then
-        userdel xray 2>/dev/null || echo "Note: could not remove the system user 'xray'." >&2
+        userdel xray 2>/dev/null || msg "Note: could not remove the system user 'xray'." "提示:无法删除系统用户 'xray'。" >&2
     fi
     systemctl daemon-reload
 
     echo ""
-    echo "Xray has been completely removed."
+    msg "Xray has been completely removed." "Xray 已彻底卸载。"
 }
 
 # ==============================================================================
@@ -864,37 +931,38 @@ show_status() {
     fi
 
     echo ""
-    echo "   Service  : ${state:-unknown}${since:+ (since $since)}"
-    echo "   Autostart: ${autostart:-unknown}"
-    echo "   Version  : ${version:-unknown}"
-    echo "   Address  : ${server:-not saved}"
-    echo "   SNI      : $sni"
-    echo "   Transport: $transport"
-    echo "   Clients  : $clients"
-    echo "   Log      : journalctl -u xray"
+    msg "   Service  : ${state:-$(t unknown 未知)}${since:+ ($(t 'since' '自') $since)}" \
+        "   服务     : ${state:-$(t unknown 未知)}${since:+ ($(t 'since' '自') $since)}"
+    msg "   Autostart: ${autostart:-$(t unknown 未知)}" "   自启     : ${autostart:-$(t unknown 未知)}"
+    msg "   Version  : ${version:-$(t unknown 未知)}" "   版本     : ${version:-$(t unknown 未知)}"
+    msg "   Address  : ${server:-$(t 'not saved' '未保存')}" "   地址     : ${server:-$(t 'not saved' '未保存')}"
+    msg "   SNI      : $sni" "   SNI      : $sni"
+    msg "   Transport: $transport" "   传输层   : $transport"
+    msg "   Clients  : $clients" "   客户端   : $clients"
+    msg "   Log      : journalctl -u xray" "   日志     : journalctl -u xray"
 }
 
 manage_menu() {
     echo ""
-    echo "Xray VLESS+REALITY is already installed."
+    msg "Xray VLESS+REALITY is already installed." "Xray VLESS+REALITY 已安装。"
     show_status
     echo ""
-    echo "Select an option:"
-    echo "   1) Add a new client"
-    echo "   2) Remove an existing client"
-    echo "   3) Start / restart Xray"
-    echo "   4) Remove Xray"
-    echo "   5) Exit"
+    msg "Select an option:" "请选择操作:"
+    msg "   1) Add a new client" "   1) 添加新客户端"
+    msg "   2) Remove an existing client" "   2) 删除已有客户端"
+    msg "   3) Start / restart Xray" "   3) 启动 / 重启 Xray"
+    msg "   4) Remove Xray" "   4) 卸载 Xray"
+    msg "   5) Exit" "   5) 退出"
 
     local option
-    read -rp "Option [1-5]: " option
+    read -rp "$(t "Option [1-5]" "选项 [1-5]"): " option
     case "$option" in
         1) add_client ;;
         2) remove_client ;;
-        3) validate_config || exit 1; restart_xray; echo ">>> Xray restarted." ;;
+        3) validate_config || exit 1; restart_xray; msg ">>> Xray restarted." ">>> Xray 已重启。" ;;
         4) remove_xray ;;
         5) exit 0 ;;
-        *) echo "Invalid option." >&2; exit 1 ;;
+        *) msg "Invalid option." "选项无效。" >&2; exit 1 ;;
     esac
 }
 
@@ -904,9 +972,17 @@ manage_menu() {
 
 # This script must be executed as root
 if [[ "$EUID" -ne 0 ]]; then
+    # Language not selected yet — print both
     echo "This script must be run as root. Use: sudo bash $0" >&2
+    echo "本脚本必须以 root 运行,请使用: sudo bash $0" >&2
     exit 1
 fi
+
+# XRAY_INSTALL_LANG=en|zh skips the language prompt
+case "${XRAY_INSTALL_LANG:-}" in
+    en|zh) SCRIPT_LANG="$XRAY_INSTALL_LANG" ;;
+    *)      select_language ;;
+esac
 
 if is_xray_installed; then
     ensure_xray_autostart
